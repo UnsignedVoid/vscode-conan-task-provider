@@ -1,3 +1,4 @@
+import { posix } from 'path';
 import * as vscode from 'vscode';
 
 interface ConanTaskDefinitionCtor {
@@ -16,15 +17,66 @@ interface ConanTaskDefinition extends vscode.TaskDefinition {
 class ConanCommandDefinition implements ConanTaskDefinition {
 	type: string = "conan";
 	command: string = "";
-	conanfile: string = "";
-	commandArgs?: string[] = [];
-	profile?: string = "";
-	buildFolder?: string;
-	installFolder?: string;
+	conanfile: string = "conanfile.py";
+	private _commandArgs?: string[];
+	private _profile?: string;
+	private _buildFolder?: string;
+	private _installFolder?: string;
+
+	public static fromInterface(definition: ConanTaskDefinition): ConanCommandDefinition {
+		let res = new ConanCommandDefinition(vscode.Uri.file(definition.conanfile));
+		res.buildFolder = definition.buildFolder ?? "";
+		res.installFolder = definition.installFolder ?? "";
+		res.command = definition.command;
+		res.profile = definition.profile ?? "";
+		res.commandArgs = definition.commandArgs ?? [];
+		return res;
+	}
 
 	constructor(conanfile: vscode.Uri){
 		this.conanfile = conanfile.fsPath;
 	}
+
+	private get buildFolderPrefix(){
+		return vscode.Uri.file(`build/${this.profile}`).path;
+	}
+
+	public get commandArgs() : string[]{
+		return this._commandArgs ?? [];
+	}
+
+	public set commandArgs(val: string[]){
+		if(val.length == 0) return;
+		this._commandArgs = val;
+	}
+
+	public get installFolder(){
+		return this._installFolder ?? this.buildFolder;
+	}
+
+	public set installFolder(val: string){
+		if(val.length == 0) return;
+		this._installFolder = val;
+	}
+
+	public get buildFolder() {
+		return this._buildFolder ?? this.buildFolderPrefix;
+	}
+
+	public set buildFolder(val: string){
+		if(val.length == 0) return;
+		this._buildFolder = val;
+	}
+
+	public get profile(){
+		return this._profile ?? "default";
+	}
+
+	public set profile(val: string){
+		if(val.length == 0) return;
+		this._profile = val
+	}
+
 }
 
 class ConanBuildDefinition extends ConanCommandDefinition {
@@ -47,31 +99,31 @@ export class ConanTaskProvider implements vscode.TaskProvider{
 
 	private static commandDefs: ConanTaskDefinitionCtor[] = [ConanInstallDefinitionCtor, ConanBuildDefinitionCtor, ConanCreateDefinitionCtor];
 
-	private static getArgs(definition: ConanTaskDefinition) : string[]{
+	private static getArgs(definition: ConanCommandDefinition) : string[]{
 		switch (definition.command) {
 			case "build":
 				return [
 					definition.command,
 					definition.conanfile,
-					 ...(definition.commandArgs ?? []),
-					 definition.buildFolder ? `--build-folder=${definition.buildFolder}` : '', 
+					...definition.commandArgs,
+					`--build-folder=${definition.buildFolder}`, 
 					];
 			case "install":
 				return [
 					definition.command,
 					definition.conanfile,
-					...(definition.commandArgs ?? []),
-					definition.profile ? `--profile=${definition.profile}` : '',
-					definition.installFolder ? `--install-folder=${definition.installFolder}` : '',
+					...definition.commandArgs,
+					`--profile=${definition.profile}`,
+					`--install-folder=${definition.installFolder}`,
 				];
 			case "create":
 				return [
 					definition.command,
 					definition.conanfile,
-					...(definition.commandArgs ?? []),
-					definition.profile ? `--profile=${definition.profile}` : '',
-					definition.buildFolder ? `--build-folder=${definition.buildFolder}` : '', 
-					definition.installFolder ? `--install-folder=${definition.installFolder}` : '',
+					...definition.commandArgs,
+					`--profile=${definition.profile}`,
+					`--build-folder=${definition.buildFolder}`, 
+					`--install-folder=${definition.installFolder}`,
 				];
 			default:
 				return [];
@@ -79,7 +131,7 @@ export class ConanTaskProvider implements vscode.TaskProvider{
 	}
 
 	private static generateShellExec(definition: ConanTaskDefinition){	
-		return new vscode.ShellExecution("conan", ConanTaskProvider.getArgs(definition));
+		return new vscode.ShellExecution("conan", ConanTaskProvider.getArgs(ConanCommandDefinition.fromInterface(definition)));
 	}
 
 	private static generateTask(definition: ConanTaskDefinition){
